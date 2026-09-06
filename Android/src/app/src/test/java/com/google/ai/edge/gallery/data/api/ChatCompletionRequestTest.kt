@@ -29,7 +29,7 @@ class ChatCompletionRequestTest {
     @Test
     fun decodesLegacyStringContent() {
         val request = json.decodeFromString<ChatCompletionRequest>(
-            """{"model":"gemma","messages":[{"role":"user","content":"hello"}]}""".replace("\\\"", "\"")
+            """{"model":"gemma","messages":[{"role":"user","content":"hello"}]}"""
         )
 
         assertEquals("hello", request.messages.single().content)
@@ -38,7 +38,7 @@ class ChatCompletionRequestTest {
     @Test
     fun decodesTextContentArray() {
         val request = json.decodeFromString<ChatCompletionRequest>(
-            """{"model":"gemma","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}""".replace("\\\"", "\"")
+            """{"model":"gemma","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}"""
         )
 
         assertEquals("hello", request.messages.single().content)
@@ -47,7 +47,7 @@ class ChatCompletionRequestTest {
     @Test
     fun decodesMultipleMessagesAndConcatenatesTextParts() {
         val request = json.decodeFromString<ChatCompletionRequest>(
-            """{"model":"gemma","messages":[{"role":"system","content":[{"type":"text","text":"Return JSON "},{"type":"text","text":"with text"}]},{"role":"user","content":"hello"}]}""".replace("\\\"", "\"")
+            """{"model":"gemma","messages":[{"role":"system","content":[{"type":"text","text":"Return JSON "},{"type":"text","text":"with text"}]},{"role":"user","content":"hello"}]}"""
         )
 
         assertEquals(2, request.messages.size)
@@ -59,7 +59,7 @@ class ChatCompletionRequestTest {
     fun rejectsUnsupportedContentType() {
         val error = assertThrows(SerializationException::class.java) {
             json.decodeFromString<ChatCompletionRequest>(
-                """{"model":"gemma","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}""".replace("\\\"", "\"")
+                """{"model":"gemma","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}"""
             )
         }
 
@@ -70,7 +70,7 @@ class ChatCompletionRequestTest {
     fun rejectsMalformedTextContentPart() {
         val error = assertThrows(SerializationException::class.java) {
             json.decodeFromString<ChatCompletionRequest>(
-                """{"model":"gemma","messages":[{"role":"user","content":[{"type":"text"}]}]}""".replace("\\\"", "\"")
+                """{"model":"gemma","messages":[{"role":"user","content":[{"type":"text"}]}]}"""
             )
         }
 
@@ -84,6 +84,6 @@ class ChatCompletionRequestTest {
             ChatMessage(role = "assistant", content = "hello")
         )
 
-        assertEquals("""{"role":"assistant","content":"hello"}""".replace("\\\"", "\""), encoded)
+        assertEquals("""{"role":"assistant","content":"hello"}""", encoded)
     }
 }
