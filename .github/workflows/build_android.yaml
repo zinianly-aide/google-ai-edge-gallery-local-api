@@ -1,28 +1,43 @@
-name: Build Android APK
+name: Android CI & Release
 
 on:
+  pull_request:
+    branches: ["feature/local-api-server"]
+    paths:
+      - "Android/**"
+      - ".github/workflows/build_android.yaml"
+  push:
+    branches: ["feature/local-api-server"]
+    paths:
+      - "Android/**"
+      - ".github/workflows/build_android.yaml"
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build_apk:
-    name: Build Android APK
+  test_and_build:
+    name: Test and build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: ./Android/src
+
     steps:
-      - name: Checkout the source code
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: "21"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -30,66 +45,54 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Run JVM unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:assembleRelease --stacktrace
 
-      - name: Generate build timestamp
-        id: timestamp
-        run: echo "ts=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
+      - name: Prepare build metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          SHORT_SHA="${GITHUB_SHA::7}"
+          APK_NAME="google-ai-edge-gallery-local-api-v${VERSION}-build.${GITHUB_RUN_NUMBER}-${SHORT_SHA}.apk"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Rename APK with timestamp
+      - name: Rename APK
         working-directory: ${{ github.workspace }}
         run: |
           mv Android/src/app/build/outputs/apk/release/app-release.apk \
-             Android/src/app/build/outputs/apk/release/google-ai-edge-gallery-local-api-v1.0.15-${{ steps.timestamp.outputs.ts }}.apk
+             "Android/src/app/build/outputs/apk/release/${{ steps.meta.outputs.apk_name }}"
 
-      - name: Delete old Artifacts
-        working-directory: ${{ github.workspace }}
-        run: |
-          for id in $(gh api "repos/${{ github.repository }}/actions/artifacts" --jq '.artifacts[] | select(.name | startswith("google-ai-edge-gallery")) | .id'); do
-            echo "Deleting artifact $id"
-            gh api "repos/${{ github.repository }}/actions/artifacts/$id" -X DELETE
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release APK
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: google-ai-edge-gallery-local-api-release-${{ steps.timestamp.outputs.ts }}
-          path: Android/src/app/build/outputs/apk/release/google-ai-edge-gallery-local-api-v1.0.15-${{ steps.timestamp.outputs.ts }}.apk
+          name: android-release-${{ github.run_number }}-${{ steps.meta.outputs.short_sha }}
+          path: Android/src/app/build/outputs/apk/release/${{ steps.meta.outputs.apk_name }}
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Delete old release tag if exists
-        working-directory: ${{ github.workspace }}
-        run: |
-          gh release delete v1.0.15-latest --yes || true
-          git push origin :refs/tags/v1.0.15-latest || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release
+      - name: Publish prerelease
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.15-latest
-          name: Gallery Local API - Latest Build
-          body: |
-            自动构建的 APK 文件
-            
-            **版本**: v1.0.15
-            **构建时间**: ${{ github.event.head_commit.timestamp }}
-            **提交**: ${{ github.sha }}
-            
-            ### 安装说明
-            1. 下载 `app-release.apk`
-            2. 在 Android 设备上安装（需要允许未知来源应用）
-            3. 首次启动需要下载 LLM 模型
-            
-            ### 注意事项
-            - 此版本为自动构建，可能包含未测试的功能
-            - 生产环境使用请等待正式 Release
-          files: |
-            Android/src/app/build/outputs/apk/release/google-ai-edge-gallery-local-api-v1.0.15-${{ steps.timestamp.outputs.ts }}.apk
-          draft: false
+          tag_name: v${{ steps.meta.outputs.version }}-build.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Gallery Local API v${{ steps.meta.outputs.version }} build ${{ github.run_number }}
           prerelease: true
+          body: |
+            Automated Android CI build.
+
+            - Version: v${{ steps.meta.outputs.version }}
+            - Commit: `${{ github.sha }}`
+            - CI run: #${{ github.run_number }}
+            - Unit tests: passed before packaging
+
+            Download the attached APK to install this build.
+          files: Android/src/app/build/outputs/apk/release/${{ steps.meta.outputs.apk_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
